@@ -26,10 +26,10 @@ public class Main {
         for (ActorRef actor : processes) {
             actor.tell(m, ActorRef.noSender());
         }
-
-        processes.get(0).tell(
-                new Launch(),
-                ActorRef.noSender());
-
+        
+        // Launch the processes
+        for (ActorRef actor : processes) {
+            actor.tell(new Launch(), ActorRef.noSender());
+        }
     }
 }
