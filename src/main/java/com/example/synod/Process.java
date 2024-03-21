@@ -45,8 +45,8 @@ public class Process extends UntypedAbstractActor {
     private int ballot;
     private int readBallot;
     private int imposeBallot;
-    private Integer estimate;
-    private List<State> states = new ArrayList<State>();
+    private int estimate;
+    private List<State> states;
     private Map<Integer, Integer> ackCounter = new HashMap<Integer, Integer>();
 
     private int chosenValue;
@@ -58,10 +58,13 @@ public class Process extends UntypedAbstractActor {
         this.ballot = i - n;
         this.readBallot = 0;
         this.imposeBallot = i - n;
-        this.estimate = null;
+        this.estimate = -1;
         this.mode = Mode.NORMAL;
         this.faultProne = false;
-        clearStates();
+        this.states = new ArrayList<State>();
+        for (int j = 0; j < n; j++) {
+            states.add(new State(-1, 0));
+        }
     }
 
     public static Props createActor(int n, int i) {
@@ -72,22 +75,33 @@ public class Process extends UntypedAbstractActor {
 
     private void clearStates() {
         for (int j = 0; j < n; j++) {
-            states.set(j, new State(null, 0));
+            states.set(j, new State(-1, 0));
         }
     }
 
     private boolean checkMajority() {
         int count = 0;
         for (State state : states) {
-            if (state.est != null) {
+            if (state.estBallot != 0) {
                 count++;
             }
         }
         return count > n / 2;
     }
 
+    private void reinitialize() {
+        proposal = 0;
+        ballot = i - n;
+        readBallot = 0;
+        imposeBallot = i - n;
+        estimate = -1;
+        clearStates();
+        ackCounter.clear();
+    }
+
     private void propose(int v) {
         log.info(this + " - propose(" + v + ")");
+        reinitialize();
         proposal = v;
         ballot += n;
         clearStates();
@@ -128,6 +142,7 @@ public class Process extends UntypedAbstractActor {
             faultProne = true;
         } else if (message instanceof Read) {
             int incomingBallot = ((Read) message).ballot;
+            log.info(this + " - read received for " + incomingBallot + " ballot");
             if (readBallot > incomingBallot || imposeBallot > incomingBallot) {
                 getSender().tell(new Abort(incomingBallot), getSelf());
             } else {
@@ -137,6 +152,7 @@ public class Process extends UntypedAbstractActor {
         } else if (message instanceof Gather) {
             int senderID = Integer.parseInt(getSender().path().name());
             Gather gatherMessage = (Gather) message;
+            log.info(this + " - gather received from " + senderID + " with " + gatherMessage.est + " value");
             State newState = new State(gatherMessage.est, gatherMessage.estBallot);
             states.set(senderID, newState);
             if (checkMajority()) {
@@ -151,12 +167,14 @@ public class Process extends UntypedAbstractActor {
                 if (highestBallot > 0) {
                     proposal = highestState;
                 }
-                clearStates();
+                log.info("ballot: " + ballot + " proposal: " + proposal);
                 for (ActorRef actor : processes.references) {
                     actor.tell(new Impose(ballot, proposal), getSelf());
                 }
+                clearStates();
             }
         } else if (message instanceof Impose) {
+            log.info(this + " - impose received");
             Impose imposeMessage = (Impose) message;
             if (readBallot > imposeMessage.ballot || imposeBallot > imposeMessage.ballot) {
                 getSender().tell(new Abort(imposeMessage.ballot), getSelf());
@@ -173,6 +191,7 @@ public class Process extends UntypedAbstractActor {
             log.info(this + " - decided on " + proposal);
         } else if (message instanceof Ack) {
             int incomingBallot = ((Ack) message).ballot;
+            log.info(this + " - ack received for " + incomingBallot + " ballot");
             if (ackCounter.containsKey(incomingBallot)) {
                 ackCounter.put(incomingBallot, ackCounter.get(incomingBallot) + 1);
             } else {
@@ -181,7 +200,7 @@ public class Process extends UntypedAbstractActor {
 
             if (ackCounter.get(incomingBallot) > n / 2) {
                 for (ActorRef actor : processes.references) {
-                    actor.tell(proposal, getSelf());
+                    actor.tell(new Decide(proposal), getSelf());
                 }
             }
         } else if (message instanceof Abort) {
