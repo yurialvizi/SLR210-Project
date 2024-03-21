@@ -27,8 +27,8 @@ import java.util.Random;
 // Enum of all the possible states
 enum Mode {
     NORMAL,
-    FAULT_PRONE,
     SILENT,
+    ON_HOLD,
 }
 
 public class Process extends UntypedAbstractActor {
@@ -36,7 +36,7 @@ public class Process extends UntypedAbstractActor {
 
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);// Logger attached to actor
 
-    private Mode mode = Mode.NORMAL; // current state of the process
+    private Mode mode; // current state of the process
 
     private int n; // number of processes
     private int i; // id of current process
@@ -49,6 +49,9 @@ public class Process extends UntypedAbstractActor {
     private List<State> states = new ArrayList<State>();
     private Map<Integer, Integer> ackCounter = new HashMap<Integer, Integer>();
 
+    private int chosenValue;
+    private boolean faultProne;
+
     public Process(int n, int i) {
         this.n = n;
         this.i = i;
@@ -56,6 +59,8 @@ public class Process extends UntypedAbstractActor {
         this.readBallot = 0;
         this.imposeBallot = i - n;
         this.estimate = null;
+        this.mode = Mode.NORMAL;
+        this.faultProne = false;
         clearStates();
     }
 
@@ -82,10 +87,11 @@ public class Process extends UntypedAbstractActor {
     }
 
     private void propose(int v) {
-        log.info(this + " - propose("+ v+")");
+        log.info(this + " - propose(" + v + ")");
         proposal = v;
         ballot += n;
         clearStates();
+        ackCounter.clear();
         for (ActorRef actor : processes.references) {
             actor.tell(new Read(ballot), getSelf());
         }
@@ -96,7 +102,8 @@ public class Process extends UntypedAbstractActor {
             log.info(this + " - SILENT");
             return;
         }
-        else if (mode == Mode.FAULT_PRONE) {
+
+        if (faultProne) {
             log.info(this + " - FAULT_PRONE");
             // Decides with probability alpha if it going to crash
             if (Math.random() < alpha) {
@@ -113,10 +120,12 @@ public class Process extends UntypedAbstractActor {
         } else if (message instanceof Launch) {
             log.info(this + " - launch received");
             // propose a random value
-            propose(new Random().nextInt(2));
+            chosenValue = new Random().nextInt(2);
+            propose(chosenValue);
+
         } else if (message instanceof Crash) {
             log.info(this + " - crash received");
-            mode = Mode.FAULT_PRONE;
+            faultProne = true;
         } else if (message instanceof Read) {
             int incomingBallot = ((Read) message).ballot;
             if (readBallot > incomingBallot || imposeBallot > incomingBallot) {
@@ -169,6 +178,7 @@ public class Process extends UntypedAbstractActor {
             } else {
                 ackCounter.put(incomingBallot, 1);
             }
+
             if (ackCounter.get(incomingBallot) > n / 2) {
                 for (ActorRef actor : processes.references) {
                     actor.tell(proposal, getSelf());
@@ -176,10 +186,12 @@ public class Process extends UntypedAbstractActor {
             }
         } else if (message instanceof Abort) {
             log.info(this + " - abort received");
-            mode = Mode.SILENT;
+            if (mode != Mode.ON_HOLD) {
+                propose(chosenValue);
+            }
         } else if (message instanceof Hold) {
-            int holdTime = ((Hold) message).holdTime;
-            Thread.sleep(holdTime);
+            log.info(this + " - hold received");
+            mode = Mode.ON_HOLD;
         } else {
             unhandled(message);
         }
