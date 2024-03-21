@@ -29,6 +29,7 @@ enum Mode {
     NORMAL,
     SILENT,
     ON_HOLD,
+    FINISHED,
 }
 
 public class Process extends UntypedAbstractActor {
@@ -184,10 +185,13 @@ public class Process extends UntypedAbstractActor {
                 getSender().tell(new Ack(imposeMessage.ballot), getSelf());
             }
         } else if (message instanceof Decide) {
+            if (mode == Mode.FINISHED) return;
+
             int incomingValue = ((Decide) message).value;
             for (ActorRef actor : processes.references) {
                 actor.tell(new Decide(incomingValue), getSelf());
             }
+            mode = Mode.FINISHED;
             log.info(this + " - decided on " + proposal);
         } else if (message instanceof Ack) {
             int incomingBallot = ((Ack) message).ballot;
