@@ -11,8 +11,8 @@ import com.example.synod.message.Membership;
 import java.util.*;
 
 public class Main {
-    public static final int N = 3;
-    public static final int holdTime = 1000; // in milliseconds
+    public static final int N = 10;
+    public static final int holdTime = 50; // in milliseconds
 
     public static void main(String[] args) throws InterruptedException {
         // Instantiate an actor system
