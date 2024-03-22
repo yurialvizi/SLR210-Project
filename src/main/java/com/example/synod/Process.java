@@ -51,7 +51,7 @@ public class Process extends UntypedAbstractActor {
     private List<State> states;
     private Map<Integer, Integer> ackCounter = new HashMap<Integer, Integer>();
 
-    private int chosenValue;
+    private int proposingInput;
     private boolean faultProne;
 
     public Process(int n, int i) {
@@ -72,46 +72,45 @@ public class Process extends UntypedAbstractActor {
         });
     }
 
-    private void clearStates() {
+    private void clearStatesList() {
         for (int j = 0; j < n; j++) {
             states.set(j, new State(null, 0));
         }
     }
 
     private void reinitialize() {
-        proposal = null;
         ballot = i - n;
+        proposal = null;
         readBallot = 0;
         imposeBallot = i - n;
         estimate = null;
+        clearStatesList();
+
         gatherCounter = 0;
-        clearStates();
         ackCounter.clear();
     }
 
     private void propose(int v) {
         log.info(this + " - propose(" + v + ")");
         reinitialize();
+
         proposal = v;
         ballot += n;
-        clearStates();
-        ackCounter.clear();
+
         for (ActorRef actor : processes.references) {
             actor.tell(new Read(ballot), getSelf());
         }
     }
 
     public void onReceive(Object message) throws Throwable {
-        if (mode == Mode.SILENT || mode == Mode.FINISHED) return;
+        if (mode == Mode.SILENT || mode == Mode.FINISHED)
+            return;
 
-        if (faultProne) {
-            log.info(this + " - FAULT_PRONE");
+        if (faultProne && Math.random() < alpha) {
             // Decides with probability alpha if it going to crash
-            if (Math.random() < alpha) {
-                log.info(this + " - CRASHED");
-                mode = Mode.SILENT;
-                return;
-            }
+            log.info(this + " - CRASHED");
+            mode = Mode.SILENT;
+            return;
         }
 
         if (message instanceof Membership) {
@@ -121,8 +120,8 @@ public class Process extends UntypedAbstractActor {
         } else if (message instanceof Launch) {
             log.info(this + " - launch received");
             // propose a random value
-            chosenValue = new Random().nextInt(2);
-            propose(chosenValue);
+            proposingInput = new Random().nextInt(2);
+            propose(proposingInput);
 
         } else if (message instanceof Crash) {
             log.info(this + " - crash received");
@@ -139,7 +138,8 @@ public class Process extends UntypedAbstractActor {
         } else if (message instanceof Gather) {
             int senderID = Integer.parseInt(getSender().path().name());
             Gather gatherMessage = (Gather) message;
-            log.info(this + " - gather received from " + senderID + " with est: " + gatherMessage.est + " and estBallot: " + gatherMessage.estBallot + " ballot: " + gatherMessage.ballot);
+            log.info(this + " - gather received from " + senderID + " with est: " + gatherMessage.est
+                    + " and estBallot: " + gatherMessage.estBallot + " ballot: " + gatherMessage.ballot);
             State newState = new State(gatherMessage.est, gatherMessage.estBallot);
             states.set(senderID, newState);
             gatherCounter++;
@@ -153,14 +153,15 @@ public class Process extends UntypedAbstractActor {
                 if (highestState.estBallot > 0) {
                     proposal = highestState.est;
                 }
-                clearStates();
+                clearStatesList();
                 log.info("ballot: " + ballot + " proposal: " + proposal);
                 for (ActorRef actor : processes.references) {
                     actor.tell(new Impose(ballot, proposal), getSelf());
                 }
             }
         } else if (message instanceof Impose) {
-            log.info(this + " - impose received with ballot: " + ((Impose) message).ballot + " and value: " + ((Impose) message).value);
+            log.info(this + " - impose received with ballot: " + ((Impose) message).ballot + " and value: "
+                    + ((Impose) message).value);
             Impose imposeMessage = (Impose) message;
             if (readBallot > imposeMessage.ballot || imposeBallot > imposeMessage.ballot) {
                 getSender().tell(new Abort(imposeMessage.ballot), getSelf());
@@ -193,8 +194,9 @@ public class Process extends UntypedAbstractActor {
         } else if (message instanceof Abort) {
             log.info(this + " - abort received");
             if (mode != Mode.ON_HOLD) {
-                propose(chosenValue);
+                propose(proposingInput);
             }
+            mode = Mode.FINISHED;
         } else if (message instanceof Hold) {
             log.info(this + " - hold received");
             mode = Mode.ON_HOLD;
