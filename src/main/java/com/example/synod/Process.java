@@ -1,11 +1,8 @@
 package com.example.synod;
 
-import akka.actor.Actor;
-import akka.actor.ActorRef;
-import akka.actor.Props;
-import akka.actor.UntypedAbstractActor;
-import akka.event.Logging;
-import akka.event.LoggingAdapter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 import com.example.synod.message.Abort;
 import com.example.synod.message.Ack;
@@ -18,11 +15,12 @@ import com.example.synod.message.Launch;
 import com.example.synod.message.Membership;
 import com.example.synod.message.Read;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import akka.actor.Actor;
+import akka.actor.ActorRef;
+import akka.actor.Props;
+import akka.actor.UntypedAbstractActor;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
 
 // Enum of all the possible states
 enum Mode {
@@ -47,9 +45,10 @@ public class Process extends UntypedAbstractActor {
     private int readBallot;
     private int imposeBallot;
     private Integer estimate;
-    private int gatherCounter;
     private List<State> states;
-    private Map<Integer, Integer> ackCounter = new HashMap<Integer, Integer>();
+
+    private int gatherCounter;
+    private int ackCounter;
 
     private int proposingInput;
     private boolean faultProne;
@@ -57,13 +56,19 @@ public class Process extends UntypedAbstractActor {
     public Process(int n, int i) {
         this.n = n;
         this.i = i;
-        this.mode = Mode.NORMAL;
-        this.faultProne = false;
-        this.states = new ArrayList<State>();
+        ballot = i - n;
+        proposal = null;
+        readBallot = 0;
+        imposeBallot = i - n;
+        estimate = null;
+        states = new ArrayList<State>();
         for (int j = 0; j < n; j++) {
             states.add(new State(null, 0));
         }
-        reinitialize();
+
+        gatherCounter = 0;
+        mode = Mode.NORMAL;
+        faultProne = false;
     }
 
     public static Props createActor(int n, int i) {
@@ -78,24 +83,14 @@ public class Process extends UntypedAbstractActor {
         }
     }
 
-    private void reinitialize() {
-        ballot = i - n;
-        proposal = null;
-        readBallot = 0;
-        imposeBallot = i - n;
-        estimate = null;
-        clearStatesList();
-
-        gatherCounter = 0;
-        ackCounter.clear();
-    }
-
     private void propose(int v) {
         log.info(this + " - propose(" + v + ")");
-        reinitialize();
 
         proposal = v;
         ballot += n;
+
+        ackCounter = 0;
+        gatherCounter = 0;
 
         log.info(this + " - Sending Read - ballot: " + ballot);
         for (ActorRef actor : processes.references) {
@@ -143,11 +138,17 @@ public class Process extends UntypedAbstractActor {
         } else if (message instanceof Gather) {
             int senderID = Integer.parseInt(getSender().path().name());
             Gather gatherMessage = (Gather) message;
+
             log.info(this + " - gather received from " + senderID + " with est: " + gatherMessage.est
                     + " and estBallot: " + gatherMessage.estBallot + " ballot: " + gatherMessage.ballot);
+
+            if (gatherMessage.ballot != ballot)
+                return;
+
             State newState = new State(gatherMessage.est, gatherMessage.estBallot);
             states.set(senderID, newState);
             gatherCounter++;
+
             if (gatherCounter > n / 2) {
                 gatherCounter = 0;
                 State highestState = new State(null, 0);
@@ -189,15 +190,16 @@ public class Process extends UntypedAbstractActor {
             }
         } else if (message instanceof Ack) {
             int incomingBallot = ((Ack) message).ballot;
-            log.info(this + " - ack received for " + incomingBallot + " ballot");
-            if (ackCounter.containsKey(incomingBallot)) {
-                ackCounter.put(incomingBallot, ackCounter.get(incomingBallot) + 1);
-            } else {
-                ackCounter.put(incomingBallot, 1);
-            }
 
-            if (ackCounter.get(incomingBallot) > n / 2) {
-                ackCounter.clear();
+            if (incomingBallot != ballot)
+                return;
+
+            ackCounter++;
+
+            log.info(this + " - ack received for " + incomingBallot + " ballot");
+
+            if (ackCounter > n / 2) {
+                ackCounter = 0;
 
                 log.info(this + " - Sending Decide - proposal: " + proposal);
                 for (ActorRef actor : processes.references) {
@@ -206,7 +208,9 @@ public class Process extends UntypedAbstractActor {
             }
         } else if (message instanceof Abort) {
             log.info(this + " - abort received");
-            if (mode == Mode.NORMAL) {
+            Abort abortMessage = (Abort) message;
+
+            if (abortMessage.ballot == ballot && mode == Mode.NORMAL) {
                 propose(proposingInput);
             }
         } else if (message instanceof Hold) {
