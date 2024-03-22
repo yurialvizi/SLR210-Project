@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
+import com.example.synod.message.Crash;
 import com.example.synod.message.Hold;
 import com.example.synod.message.Launch;
 import com.example.synod.message.Membership;
@@ -49,10 +50,10 @@ public class Main {
         List<ActorRef> nonFaultyProcesses = processes.subList(f, N);
 
         // Crash the chosen processes
-        // for (ActorRef actor : faultyProcesses) {
-        // system.log().info("Crashing " + actor);
-        // actor.tell(new Crash(), ActorRef.noSender());
-        // }
+        for (ActorRef actor : faultyProcesses) {
+        system.log().info("Crashing " + actor);
+        actor.tell(new Crash(), ActorRef.noSender());
+        }
 
         // Hold the system for a while
         Thread.sleep(holdTime);
