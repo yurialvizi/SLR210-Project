@@ -29,7 +29,7 @@ enum Mode {
     NORMAL,
     SILENT,
     ON_HOLD,
-    FINISHED,
+    DECIDED,
 }
 
 public class Process extends UntypedAbstractActor {
@@ -97,13 +97,14 @@ public class Process extends UntypedAbstractActor {
         proposal = v;
         ballot += n;
 
+        log.info(this + " - Sending Read - ballot: " + ballot);
         for (ActorRef actor : processes.references) {
             actor.tell(new Read(ballot), getSelf());
         }
     }
 
     public void onReceive(Object message) throws Throwable {
-        if (mode == Mode.SILENT || mode == Mode.FINISHED)
+        if (mode == Mode.SILENT || mode == Mode.DECIDED)
             return;
 
         if (faultProne && Math.random() < alpha) {
@@ -128,11 +129,15 @@ public class Process extends UntypedAbstractActor {
             faultProne = true;
         } else if (message instanceof Read) {
             int incomingBallot = ((Read) message).ballot;
-            log.info(this + " - read received for " + incomingBallot + " ballot");
+            log.info(this + " - read received ballot: " + incomingBallot);
+
             if (readBallot > incomingBallot || imposeBallot > incomingBallot) {
+                log.info(this + " - Sending Abort - ballot: " + incomingBallot);
                 getSender().tell(new Abort(incomingBallot), getSelf());
             } else {
                 readBallot = incomingBallot;
+                log.info(this + " - Sending Gather - incomingBallot: " + incomingBallot + " imposeBallot: "
+                        + imposeBallot + " estimate: " + estimate);
                 getSender().tell(new Gather(incomingBallot, imposeBallot, estimate), getSelf());
             }
         } else if (message instanceof Gather) {
@@ -144,6 +149,7 @@ public class Process extends UntypedAbstractActor {
             states.set(senderID, newState);
             gatherCounter++;
             if (gatherCounter > n / 2) {
+                gatherCounter = 0;
                 State highestState = new State(null, 0);
                 for (State state : states) {
                     if (state.estBallot > highestState.estBallot) {
@@ -154,7 +160,7 @@ public class Process extends UntypedAbstractActor {
                     proposal = highestState.est;
                 }
                 clearStatesList();
-                log.info("ballot: " + ballot + " proposal: " + proposal);
+                log.info(this + " - Sending Impose - ballot: " + ballot + " proposal: " + proposal);
                 for (ActorRef actor : processes.references) {
                     actor.tell(new Impose(ballot, proposal), getSelf());
                 }
@@ -164,19 +170,23 @@ public class Process extends UntypedAbstractActor {
                     + ((Impose) message).value);
             Impose imposeMessage = (Impose) message;
             if (readBallot > imposeMessage.ballot || imposeBallot > imposeMessage.ballot) {
+                log.info(this + " - Sending Abort - ballot: " + imposeMessage.ballot);
                 getSender().tell(new Abort(imposeMessage.ballot), getSelf());
             } else {
                 estimate = imposeMessage.value;
                 imposeBallot = imposeMessage.ballot;
+
+                log.info(this + " - Sending Ack - ballot: " + imposeMessage.ballot);
                 getSender().tell(new Ack(imposeMessage.ballot), getSelf());
             }
         } else if (message instanceof Decide) {
             int incomingValue = ((Decide) message).value;
+            mode = Mode.DECIDED;
+            log.info(this + " - received Decide  with value:" + incomingValue);
+
             for (ActorRef actor : processes.references) {
                 actor.tell(new Decide(incomingValue), getSelf());
             }
-            mode = Mode.FINISHED;
-            log.info(this + " - decided on " + proposal);
         } else if (message instanceof Ack) {
             int incomingBallot = ((Ack) message).ballot;
             log.info(this + " - ack received for " + incomingBallot + " ballot");
@@ -187,16 +197,18 @@ public class Process extends UntypedAbstractActor {
             }
 
             if (ackCounter.get(incomingBallot) > n / 2) {
+                ackCounter.clear();
+
+                log.info(this + " - Sending Decide - proposal: " + proposal);
                 for (ActorRef actor : processes.references) {
                     actor.tell(new Decide(proposal), getSelf());
                 }
             }
         } else if (message instanceof Abort) {
             log.info(this + " - abort received");
-            if (mode != Mode.ON_HOLD) {
+            if (mode == Mode.NORMAL) {
                 propose(proposingInput);
             }
-            mode = Mode.FINISHED;
         } else if (message instanceof Hold) {
             log.info(this + " - hold received");
             mode = Mode.ON_HOLD;

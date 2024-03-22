@@ -1,18 +1,20 @@
 package com.example.synod;
 
-import akka.actor.ActorRef;
-import akka.actor.ActorSystem;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Random;
 
-import com.example.synod.message.Crash;
 import com.example.synod.message.Hold;
 import com.example.synod.message.Launch;
 import com.example.synod.message.Membership;
 
-import java.util.*;
+import akka.actor.ActorRef;
+import akka.actor.ActorSystem;
 
 public class Main {
-    public static final int N = 10;
-    public static final int holdTime = 50; // in milliseconds
+    public static final int N = 30;
+    public static final int holdTime = 1; // in milliseconds
 
     public static void main(String[] args) throws InterruptedException {
         // Instantiate an actor system
@@ -47,10 +49,10 @@ public class Main {
         List<ActorRef> nonFaultyProcesses = processes.subList(f, N);
 
         // Crash the chosen processes
-        for (ActorRef actor : faultyProcesses) {
-            system.log().info("Crashing " + actor);
-            actor.tell(new Crash(), ActorRef.noSender());
-        }
+        // for (ActorRef actor : faultyProcesses) {
+        // system.log().info("Crashing " + actor);
+        // actor.tell(new Crash(), ActorRef.noSender());
+        // }
 
         // Hold the system for a while
         Thread.sleep(holdTime);
@@ -62,13 +64,16 @@ public class Main {
 
         // Hold all processes
         for (ActorRef process : processes) {
-            if (process.equals(chosenProcess)) // TODO: Check
+            if (process.equals(chosenProcess)) { // TODO: Check
+                system.log().info("Skipping " + process);
                 continue;
-
+            }
+            system.log().info("Holding " + process);
             process.tell(new Hold(), ActorRef.noSender());
         }
 
         try {
+            system.log().info("Waiting for 60 seconds before terminating the system");
             waitBeforeTerminate();
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -78,6 +83,6 @@ public class Main {
     }
 
     public static void waitBeforeTerminate() throws InterruptedException {
-        Thread.sleep(5000);
+        Thread.sleep(1000);
     }
 }
