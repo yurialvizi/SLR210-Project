@@ -8,4 +8,9 @@ public class Impose {
         this.ballot = ballot;
         this.value = value;
     }
+
+    @Override
+    public String toString() {
+        return "[IMPOSE] ballot:" + ballot + " value:" + value;
+    }
 }

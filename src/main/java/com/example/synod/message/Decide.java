@@ -6,4 +6,9 @@ public class Decide {
     public Decide(int value) {
         this.value = value;
     }
+
+    @Override
+    public String toString() {
+        return "[DECIDE] value:" + value;
+    }
 }

@@ -6,4 +6,9 @@ public class Ack {
     public Ack(int ballot) {
         this.ballot = ballot;
     }
+
+    @Override
+    public String toString() {
+        return "[ACK] ballot:" + ballot;
+    }
 }

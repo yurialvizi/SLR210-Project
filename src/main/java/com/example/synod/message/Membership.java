@@ -11,4 +11,9 @@ public class Membership {
         this.references = references;
     }
 
+    @Override
+    public String toString() {
+        return "[MEMBERSHIP]";
+    }
+
 }

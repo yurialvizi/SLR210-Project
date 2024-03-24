@@ -84,6 +84,6 @@ public class Main {
     }
 
     public static void waitBeforeTerminate() throws InterruptedException {
-        Thread.sleep(1000);
+        Thread.sleep(2000);
     }
 }

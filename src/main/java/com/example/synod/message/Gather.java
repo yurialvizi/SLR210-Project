@@ -10,4 +10,9 @@ public class Gather {
         this.estBallot = estBallot;
         this.est = est;
     }
+
+    @Override
+    public String toString() {
+        return "[GATHER] ballot:" + ballot + " estBallot:" + estBallot + " est:" + est;
+    }
 }

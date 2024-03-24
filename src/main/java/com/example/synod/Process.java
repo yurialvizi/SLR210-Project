@@ -15,6 +15,7 @@ import com.example.synod.message.Launch;
 import com.example.synod.message.Membership;
 import com.example.synod.message.Read;
 
+import akka.actor.AbstractActor;
 import akka.actor.Actor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
@@ -30,11 +31,18 @@ enum Mode {
     DECIDED,
 }
 
-public class Process extends UntypedAbstractActor {
+enum LogMode {
+    SENDING_AND_RECEIVING,
+    SENDING_ONLY,
+    RECEIVING_ONLY,
+    NONE,
+}
+
+public class Process extends AbstractActor {
+    private final LoggingAdapter logAdapter = Logging.getLogger(getContext().getSystem(), this);
+    private CustomLogger log = new CustomLogger(logAdapter);
+
     private final static double alpha = 0.1; // probability of crashing
-
-    private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);// Logger attached to actor
-
     private Mode mode; // current state of the process
 
     private int n; // number of processes
@@ -69,6 +77,8 @@ public class Process extends UntypedAbstractActor {
         gatherCounter = 0;
         mode = Mode.NORMAL;
         faultProne = false;
+
+        log.setPrefix(this.toString());
     }
 
     public static Props createActor(int n, int i) {
@@ -84,7 +94,7 @@ public class Process extends UntypedAbstractActor {
     }
 
     private void propose(int v) {
-        log.info(this + " - propose(" + v + ")");
+        logAdapter.info(this + " - propose(" + v + ")");
 
         proposal = v;
         ballot += n;
@@ -92,138 +102,195 @@ public class Process extends UntypedAbstractActor {
         ackCounter = 0;
         gatherCounter = 0;
 
-        log.info(this + " - Sending Read - ballot: " + ballot);
-        for (ActorRef actor : processes.references) {
-            actor.tell(new Read(ballot), getSelf());
+        sendToAll(new Read(ballot));
+    }
+
+    @Override
+    public Receive createReceive() {
+        return receiveBuilder()
+                .match(Launch.class, this::beforeReceive, this::onLaunch)
+                .match(Membership.class, this::beforeReceive, this::onMembership)
+                .match(Crash.class, this::beforeReceive, this::onCrashMessage)
+                .match(Read.class, this::beforeReceive, this::onRead)
+                .match(Gather.class, this::beforeReceive, this::onGather)
+                .match(Impose.class, this::beforeReceive, this::onImpose)
+                .match(Decide.class, this::beforeReceive, this::onDecide)
+                .match(Ack.class, this::beforeReceive, this::onAck)
+                .match(Abort.class, this::beforeReceive, this::onAbort)
+                .match(Hold.class, this::beforeReceive, this::onHold)
+                .build();
+    }
+
+    /*
+     * MESSAGE HANDLERS
+     */
+
+    // This method is called before processing a message
+    // it returns true if the message should be processed, false otherwise
+    private boolean beforeReceive(Object message) {
+        log.onReceiveMessage(message);
+
+        if (mode == Mode.SILENT || mode == Mode.DECIDED)
+            return false;
+
+        // Decides with probability alpha if it going to crash
+        if (faultProne && Math.random() < alpha) {
+            logAdapter.info(this + " - CRASHED");
+            mode = Mode.SILENT;
+            return false;
+        }
+
+        return true;
+    }
+
+    private void onMembership(Membership message) {
+        processes = message;
+    }
+
+    private void onLaunch(Launch message) {
+        // propose a random value
+        proposingInput = new Random().nextInt(2);
+        propose(proposingInput);
+    }
+
+    private void onCrashMessage(Crash message) {
+        faultProne = true;
+    }
+
+    private void onRead(Read message) {
+        int incomingBallot = message.ballot;
+
+        if (readBallot > incomingBallot || imposeBallot > incomingBallot) {
+            sendToSender(new Abort(incomingBallot));
+        } else {
+            readBallot = incomingBallot;
+            sendToSender(new Gather(incomingBallot, imposeBallot, estimate));
         }
     }
 
-    public void onReceive(Object message) throws Throwable {
-        if (mode == Mode.SILENT || mode == Mode.DECIDED)
+    private void onGather(Gather message) {
+        int senderID = Integer.parseInt(getSender().path().name());
+
+        if (message.ballot != ballot)
             return;
 
-        if (faultProne && Math.random() < alpha) {
-            // Decides with probability alpha if it going to crash
-            log.info(this + " - CRASHED");
-            mode = Mode.SILENT;
-            return;
+        State newState = new State(message.est, message.estBallot);
+        states.set(senderID, newState);
+        gatherCounter++;
+
+        if (gatherCounter > n / 2) {
+            gatherCounter = 0;
+            State highestState = new State(null, 0);
+            for (State state : states) {
+                if (state.estBallot > highestState.estBallot) {
+                    highestState = new State(state.est, state.estBallot);
+                }
+            }
+            if (highestState.estBallot > 0) {
+                proposal = highestState.est;
+            }
+            clearStatesList();
+            sendToAll(new Impose(ballot, proposal));
         }
+    }
 
-        if (message instanceof Membership) {
-            log.info(this + " - membership received");
-            Membership m = (Membership) message;
-            processes = m;
-        } else if (message instanceof Launch) {
-            log.info(this + " - launch received");
-            // propose a random value
-            proposingInput = new Random().nextInt(2);
-            propose(proposingInput);
-
-        } else if (message instanceof Crash) {
-            log.info(this + " - crash received");
-            faultProne = true;
-        } else if (message instanceof Read) {
-            int incomingBallot = ((Read) message).ballot;
-            log.info(this + " - read received ballot: " + incomingBallot);
-
-            if (readBallot > incomingBallot || imposeBallot > incomingBallot) {
-                log.info(this + " - Sending Abort - ballot: " + incomingBallot);
-                getSender().tell(new Abort(incomingBallot), getSelf());
-            } else {
-                readBallot = incomingBallot;
-                log.info(this + " - Sending Gather - incomingBallot: " + incomingBallot + " imposeBallot: "
-                        + imposeBallot + " estimate: " + estimate);
-                getSender().tell(new Gather(incomingBallot, imposeBallot, estimate), getSelf());
-            }
-        } else if (message instanceof Gather) {
-            int senderID = Integer.parseInt(getSender().path().name());
-            Gather gatherMessage = (Gather) message;
-
-            log.info(this + " - gather received from " + senderID + " with est: " + gatherMessage.est
-                    + " and estBallot: " + gatherMessage.estBallot + " ballot: " + gatherMessage.ballot);
-
-            if (gatherMessage.ballot != ballot)
-                return;
-
-            State newState = new State(gatherMessage.est, gatherMessage.estBallot);
-            states.set(senderID, newState);
-            gatherCounter++;
-
-            if (gatherCounter > n / 2) {
-                gatherCounter = 0;
-                State highestState = new State(null, 0);
-                for (State state : states) {
-                    if (state.estBallot > highestState.estBallot) {
-                        highestState = new State(state.est, state.estBallot);
-                    }
-                }
-                if (highestState.estBallot > 0) {
-                    proposal = highestState.est;
-                }
-                clearStatesList();
-                log.info(this + " - Sending Impose - ballot: " + ballot + " proposal: " + proposal);
-                for (ActorRef actor : processes.references) {
-                    actor.tell(new Impose(ballot, proposal), getSelf());
-                }
-            }
-        } else if (message instanceof Impose) {
-            log.info(this + " - impose received with ballot: " + ((Impose) message).ballot + " and value: "
-                    + ((Impose) message).value);
-            Impose imposeMessage = (Impose) message;
-            if (readBallot > imposeMessage.ballot || imposeBallot > imposeMessage.ballot) {
-                log.info(this + " - Sending Abort - ballot: " + imposeMessage.ballot);
-                getSender().tell(new Abort(imposeMessage.ballot), getSelf());
-            } else {
-                estimate = imposeMessage.value;
-                imposeBallot = imposeMessage.ballot;
-
-                log.info(this + " - Sending Ack - ballot: " + imposeMessage.ballot);
-                getSender().tell(new Ack(imposeMessage.ballot), getSelf());
-            }
-        } else if (message instanceof Decide) {
-            int incomingValue = ((Decide) message).value;
-            mode = Mode.DECIDED;
-            log.info(this + " - received Decide  with value:" + incomingValue);
-
-            for (ActorRef actor : processes.references) {
-                actor.tell(new Decide(incomingValue), getSelf());
-            }
-        } else if (message instanceof Ack) {
-            int incomingBallot = ((Ack) message).ballot;
-
-            if (incomingBallot != ballot)
-                return;
-
-            ackCounter++;
-
-            log.info(this + " - ack received for " + incomingBallot + " ballot");
-
-            if (ackCounter > n / 2) {
-                ackCounter = 0;
-
-                log.info(this + " - Sending Decide - proposal: " + proposal);
-                for (ActorRef actor : processes.references) {
-                    actor.tell(new Decide(proposal), getSelf());
-                }
-            }
-        } else if (message instanceof Abort) {
-            log.info(this + " - abort received");
-            Abort abortMessage = (Abort) message;
-
-            if (abortMessage.ballot == ballot && mode == Mode.NORMAL) {
-                propose(proposingInput);
-            }
-        } else if (message instanceof Hold) {
-            log.info(this + " - hold received");
-            mode = Mode.ON_HOLD;
+    private void onImpose(Impose message) {
+        Impose imposeMessage = message;
+        if (readBallot > imposeMessage.ballot || imposeBallot > imposeMessage.ballot) {
+            sendToSender(new Abort(imposeMessage.ballot));
         } else {
-            unhandled(message);
+            estimate = imposeMessage.value;
+            imposeBallot = imposeMessage.ballot;
+            sendToSender(new Ack(imposeMessage.ballot));
         }
+    }
+
+    private void onDecide(Decide message) {
+        int incomingValue = message.value;
+        mode = Mode.DECIDED;
+
+        sendToAll(new Decide(incomingValue));
+    }
+
+    private void onAck(Ack message) {
+        int incomingBallot = message.ballot;
+
+        if (incomingBallot != ballot)
+            return;
+
+        ackCounter++;
+
+        if (ackCounter > n / 2) {
+            ackCounter = 0;
+            sendToAll(new Decide(proposal));
+        }
+    }
+
+    private void onAbort(Abort message) {
+        Abort abortMessage = message;
+
+        if (abortMessage.ballot == ballot && mode == Mode.NORMAL) {
+            propose(proposingInput);
+        }
+    }
+
+    private void onHold(Hold message) {
+        mode = Mode.ON_HOLD;
+    }
+
+    /*
+     * HELPER METHODS
+     */
+
+    private void sendToAll(Object message) {
+        log.onSendMessage(message);
+
+        for (ActorRef actor : processes.references) {
+            actor.tell(message, getSelf());
+        }
+    }
+
+    private void sendToSender(Object message) {
+        log.onSendMessage(message);
+
+        getSender().tell(message, getSelf());
     }
 
     @Override
     public String toString() {
         return "Process #" + i;
     }
+}
 
+class CustomLogger {
+    private final LoggingAdapter logger;
+    public static LogMode logMode = LogMode.SENDING_ONLY;
+    private String prefix = "";
+
+    public CustomLogger(LoggingAdapter logger) {
+        this.logger = logger;
+    }
+
+    public void setPrefix(String prefix) {
+        this.prefix = prefix;
+    }
+
+    public void onSendMessage(Object message) {
+        if (logMode == LogMode.SENDING_AND_RECEIVING || logMode == LogMode.SENDING_ONLY)
+            logInfo("Sending " + message.toString());
+    }
+
+    public void onReceiveMessage(Object message) {
+        if (logMode == LogMode.SENDING_AND_RECEIVING || logMode == LogMode.RECEIVING_ONLY)
+            logInfo("Received " + message.toString());
+    }
+
+    private void logInfo(String message) {
+        if (prefix != null && prefix.length() > 0) {
+            logger.info(prefix + " " + message);
+        } else {
+            logger.info(message);
+        }
+
+    }
 }

@@ -6,4 +6,9 @@ public class Abort {
     public Abort(int ballot) {
         this.ballot = ballot;
     }
+
+    @Override
+    public String toString() {
+        return "[ABORT] ballot:" + ballot;
+    }
 }
