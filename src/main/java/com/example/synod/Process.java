@@ -19,7 +19,6 @@ import akka.actor.AbstractActor;
 import akka.actor.Actor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
-import akka.actor.UntypedAbstractActor;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
@@ -31,23 +30,17 @@ enum Mode {
     DECIDED,
 }
 
-enum LogMode {
-    SENDING_AND_RECEIVING,
-    SENDING_ONLY,
-    RECEIVING_ONLY,
-    NONE,
-}
-
 public class Process extends AbstractActor {
     private final LoggingAdapter logAdapter = Logging.getLogger(getContext().getSystem(), this);
     private CustomLogger log = new CustomLogger(logAdapter);
 
-    private final static double alpha = 0.1; // probability of crashing
+    private final static double ALPHA = 0.1; // probability of crashing
     private Mode mode; // current state of the process
 
     private int n; // number of processes
     private int i; // id of current process
     private Membership processes; // other processes' references
+
     private Integer proposal;
     private int ballot;
     private int readBallot;
@@ -59,7 +52,8 @@ public class Process extends AbstractActor {
     private int ackCounter;
 
     private int proposingInput;
-    private boolean faultProne;
+    private boolean faultProne; // if true, each time a message is received, the process crashes with
+                                // probability alpha
 
     public Process(int n, int i) {
         this.n = n;
@@ -94,10 +88,8 @@ public class Process extends AbstractActor {
     }
 
     private void propose(int v) {
-        logAdapter.info(this + " - propose(" + v + ")");
-
         proposal = v;
-        ballot += n;
+        ballot += n; // Incrementing with n guarantees that the ballot is unique for each process.
 
         ackCounter = 0;
         gatherCounter = 0;
@@ -108,16 +100,16 @@ public class Process extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-                .match(Launch.class, this::beforeReceive, this::onLaunch)
-                .match(Membership.class, this::beforeReceive, this::onMembership)
+                .match(Launch.class, this::beforeReceive, this::onLaunchMessage)
+                .match(Membership.class, this::beforeReceive, this::onMembershipMessage)
                 .match(Crash.class, this::beforeReceive, this::onCrashMessage)
-                .match(Read.class, this::beforeReceive, this::onRead)
-                .match(Gather.class, this::beforeReceive, this::onGather)
-                .match(Impose.class, this::beforeReceive, this::onImpose)
-                .match(Decide.class, this::beforeReceive, this::onDecide)
-                .match(Ack.class, this::beforeReceive, this::onAck)
-                .match(Abort.class, this::beforeReceive, this::onAbort)
-                .match(Hold.class, this::beforeReceive, this::onHold)
+                .match(Read.class, this::beforeReceive, this::onReadMessage)
+                .match(Gather.class, this::beforeReceive, this::onGatherMessage)
+                .match(Impose.class, this::beforeReceive, this::onImposeMessage)
+                .match(Decide.class, this::beforeReceive, this::onDecideMessage)
+                .match(Ack.class, this::beforeReceive, this::onAckMessage)
+                .match(Abort.class, this::beforeReceive, this::onAbortMessage)
+                .match(Hold.class, this::beforeReceive, this::onHoldMessage)
                 .build();
     }
 
@@ -134,8 +126,8 @@ public class Process extends AbstractActor {
             return false;
 
         // Decides with probability alpha if it going to crash
-        if (faultProne && Math.random() < alpha) {
-            logAdapter.info(this + " - CRASHED");
+        if (faultProne && Math.random() < ALPHA) {
+            log.onCrash();
             mode = Mode.SILENT;
             return false;
         }
@@ -143,11 +135,11 @@ public class Process extends AbstractActor {
         return true;
     }
 
-    private void onMembership(Membership message) {
+    private void onMembershipMessage(Membership message) {
         processes = message;
     }
 
-    private void onLaunch(Launch message) {
+    private void onLaunchMessage(Launch message) {
         // propose a random value
         proposingInput = new Random().nextInt(2);
         propose(proposingInput);
@@ -157,18 +149,19 @@ public class Process extends AbstractActor {
         faultProne = true;
     }
 
-    private void onRead(Read message) {
+    private void onReadMessage(Read message) {
         int incomingBallot = message.ballot;
 
         if (readBallot > incomingBallot || imposeBallot > incomingBallot) {
             sendToSender(new Abort(incomingBallot));
         } else {
             readBallot = incomingBallot;
+            //////////////// Gather(int ballot, int estBallot, Integer est)
             sendToSender(new Gather(incomingBallot, imposeBallot, estimate));
         }
     }
 
-    private void onGather(Gather message) {
+    private void onGatherMessage(Gather message) {
         int senderID = Integer.parseInt(getSender().path().name());
 
         if (message.ballot != ballot)
@@ -194,7 +187,7 @@ public class Process extends AbstractActor {
         }
     }
 
-    private void onImpose(Impose message) {
+    private void onImposeMessage(Impose message) {
         Impose imposeMessage = message;
         if (readBallot > imposeMessage.ballot || imposeBallot > imposeMessage.ballot) {
             sendToSender(new Abort(imposeMessage.ballot));
@@ -205,14 +198,14 @@ public class Process extends AbstractActor {
         }
     }
 
-    private void onDecide(Decide message) {
+    private void onDecideMessage(Decide message) {
         int incomingValue = message.value;
         mode = Mode.DECIDED;
 
         sendToAll(new Decide(incomingValue));
     }
 
-    private void onAck(Ack message) {
+    private void onAckMessage(Ack message) {
         int incomingBallot = message.ballot;
 
         if (incomingBallot != ballot)
@@ -226,7 +219,7 @@ public class Process extends AbstractActor {
         }
     }
 
-    private void onAbort(Abort message) {
+    private void onAbortMessage(Abort message) {
         Abort abortMessage = message;
 
         if (abortMessage.ballot == ballot && mode == Mode.NORMAL) {
@@ -234,7 +227,7 @@ public class Process extends AbstractActor {
         }
     }
 
-    private void onHold(Hold message) {
+    private void onHoldMessage(Hold message) {
         mode = Mode.ON_HOLD;
     }
 
@@ -259,38 +252,5 @@ public class Process extends AbstractActor {
     @Override
     public String toString() {
         return "Process #" + i;
-    }
-}
-
-class CustomLogger {
-    private final LoggingAdapter logger;
-    public static LogMode logMode = LogMode.SENDING_ONLY;
-    private String prefix = "";
-
-    public CustomLogger(LoggingAdapter logger) {
-        this.logger = logger;
-    }
-
-    public void setPrefix(String prefix) {
-        this.prefix = prefix;
-    }
-
-    public void onSendMessage(Object message) {
-        if (logMode == LogMode.SENDING_AND_RECEIVING || logMode == LogMode.SENDING_ONLY)
-            logInfo("Sending " + message.toString());
-    }
-
-    public void onReceiveMessage(Object message) {
-        if (logMode == LogMode.SENDING_AND_RECEIVING || logMode == LogMode.RECEIVING_ONLY)
-            logInfo("Received " + message.toString());
-    }
-
-    private void logInfo(String message) {
-        if (prefix != null && prefix.length() > 0) {
-            logger.info(prefix + " " + message);
-        } else {
-            logger.info(message);
-        }
-
     }
 }

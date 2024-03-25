@@ -51,16 +51,16 @@ public class Main {
 
         // Crash the chosen processes
         for (ActorRef actor : faultyProcesses) {
-        system.log().info("Crashing " + actor);
-        actor.tell(new Crash(), ActorRef.noSender());
+            actor.tell(new Crash(), ActorRef.noSender());
         }
 
         // Hold the system for a while
         Thread.sleep(holdTime);
-        system.log().info("Time to election");
+        system.log().info("Time to hold");
 
-        ActorRef chosenProcess = nonFaultyProcesses.get(0); // NonFaultyProcesses is shuffled, so we can choose the
-                                                            // first one
+        // NonFaultyProcesses is shuffled, so we can choose the first one
+        ActorRef chosenProcess = nonFaultyProcesses.get(0);
+
         system.log().info("Chosen process: " + chosenProcess);
 
         // Hold all processes
@@ -74,7 +74,7 @@ public class Main {
         }
 
         try {
-            system.log().info("Waiting for 60 seconds before terminating the system");
+            system.log().info("Waiting for 5 seconds before terminating the system");
             waitBeforeTerminate();
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -84,6 +84,6 @@ public class Main {
     }
 
     public static void waitBeforeTerminate() throws InterruptedException {
-        Thread.sleep(2000);
+        Thread.sleep(5000);
     }
 }
