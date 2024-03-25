@@ -26,14 +26,14 @@ class CustomLogger {
   }
 
   public void onSendMessage(Object message) {
-    if (logOutgoingMessages)
+    boolean isDecide = message instanceof Decide;
+
+    if (logOutgoingMessages || (isDecide && logConsensus))
       logInfo("Sending " + message.toString());
   }
 
   public void onReceiveMessage(Object message) {
-    boolean isDecide = message instanceof Decide;
-
-    if (logIncomingMessages || (isDecide && logConsensus))
+    if (logIncomingMessages)
       logInfo("Received " + message.toString());
   }
 

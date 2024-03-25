@@ -31,16 +31,13 @@ enum Mode {
 }
 
 public class Process extends AbstractActor {
+    /* Logging */
     private final LoggingAdapter logAdapter = Logging.getLogger(getContext().getSystem(), this);
     private CustomLogger log = new CustomLogger(logAdapter);
 
-    private final static double ALPHA = 0.1; // probability of crashing
-    private Mode mode; // current state of the process
-
+    /* Original variables of the algorithm */
     private int n; // number of processes
     private int i; // id of current process
-    private Membership processes; // other processes' references
-
     private Integer proposal;
     private int ballot;
     private int readBallot;
@@ -48,12 +45,19 @@ public class Process extends AbstractActor {
     private Integer estimate;
     private List<State> states;
 
+    /* Counters to know if received from the majority */
     private int gatherCounter;
     private int ackCounter;
 
+    /* Custom variables for the project */
+    private Membership processes; // other processes' references
+    private static double alpha = 0.1; // probability of crashing
+    private Mode mode;
     private int proposingInput;
-    private boolean faultProne; // if true, each time a message is received, the process crashes with
-                                // probability alpha
+    private boolean faultProne;
+
+    /* Metrics */
+    private long decidedAt;
 
     public Process(int n, int i) {
         this.n = n;
@@ -110,12 +114,16 @@ public class Process extends AbstractActor {
                 .match(Ack.class, this::beforeReceive, this::onAckMessage)
                 .match(Abort.class, this::beforeReceive, this::onAbortMessage)
                 .match(Hold.class, this::beforeReceive, this::onHoldMessage)
+                .matchAny(this::unhandled)
                 .build();
     }
 
     /*
      * MESSAGE HANDLERS
      */
+    public void unhandled(Object message) {
+
+    }
 
     // This method is called before processing a message
     // it returns true if the message should be processed, false otherwise
@@ -126,7 +134,7 @@ public class Process extends AbstractActor {
             return false;
 
         // Decides with probability alpha if it going to crash
-        if (faultProne && Math.random() < ALPHA) {
+        if (faultProne && Math.random() < alpha) {
             log.onCrash();
             mode = Mode.SILENT;
             return false;
@@ -156,7 +164,6 @@ public class Process extends AbstractActor {
             sendToSender(new Abort(incomingBallot));
         } else {
             readBallot = incomingBallot;
-            //////////////// Gather(int ballot, int estBallot, Integer est)
             sendToSender(new Gather(incomingBallot, imposeBallot, estimate));
         }
     }
@@ -202,6 +209,8 @@ public class Process extends AbstractActor {
         int incomingValue = message.value;
         mode = Mode.DECIDED;
 
+        decidedAt = System.nanoTime();
+
         sendToAll(new Decide(incomingValue));
     }
 
@@ -234,6 +243,14 @@ public class Process extends AbstractActor {
     /*
      * HELPER METHODS
      */
+
+    public long getDecidedAt() {
+        return decidedAt;
+    }
+
+    public static void setAlpha(double alpha) {
+        Process.alpha = alpha;
+    }
 
     private void sendToAll(Object message) {
         log.onSendMessage(message);
