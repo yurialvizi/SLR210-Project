@@ -14,8 +14,8 @@ import akka.actor.ActorSystem;
 
 public class Main {
     public static void main(String[] args) throws InterruptedException {
-        int[] N = new int[] { 3, 10, 100 };
-        int[] f = new int[] { 1, 4, 49 };
+        int[] N = new int[] { 3, 10, 40, 70, 100 };
+        int[] f = new int[] { 1, 4, 19, 34, 49 };
         double[] timeToElection = new double[] { 0.5, 1, 1.5, 2 };
         double[] alpha = new double[] { 0, 0.1, 1 };
         int repeatTimes = 5;
