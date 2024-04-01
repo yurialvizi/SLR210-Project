@@ -25,7 +25,8 @@ public class Main {
             for (double a : alpha)
                 for (double t : timeToElection)
                     for (int nTry = 0; nTry < repeatTimes; nTry++) {
-                        Parameters parameters = new Parameters(N[i], (int) Math.ceil(N[i]/2) - 1, (int) (t * 1000), a);
+                        Parameters parameters = new Parameters(N[i], (int) Math.ceil(N[i] / 2) - 1, (int) (t * 1000),
+                                a);
                         runSimulation(parameters);
                     }
     }
@@ -33,7 +34,9 @@ public class Main {
     public static void runSimulation(Parameters p) throws InterruptedException {
         // Instantiate an actor system
         final ActorSystem system = ActorSystem.create("system");
-        system.log().info("System started with N=" + p.N);
+
+        system.log().info("System started with parameters:");
+        system.log().info(p.toString());
 
         Process.setAlpha(p.alpha);
         List<ActorRef> processes = new ArrayList<>();

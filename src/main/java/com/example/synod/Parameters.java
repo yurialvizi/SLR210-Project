@@ -13,4 +13,8 @@ public class Parameters {
     this.timeToElection = timeToElection;
     this.alpha = alpha;
   }
+
+  public String toString() {
+    return "N=" + N + ", f=" + f + ", timeToElection=" + timeToElection + ", alpha=" + alpha;
+  }
 }
