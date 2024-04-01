@@ -51,7 +51,7 @@ public class Process extends AbstractActor {
 
     /* Custom variables for the project */
     private Membership processes; // other processes' references
-    private static double alpha = 0.1; // probability of crashing
+    private static double alpha; // probability of crashing
     private Mode mode;
     private int proposingInput;
     private boolean faultProne;
@@ -128,10 +128,10 @@ public class Process extends AbstractActor {
     // This method is called before processing a message
     // it returns true if the message should be processed, false otherwise
     private boolean beforeReceive(Object message) {
-        log.onReceiveMessage(message);
-
         if (mode == Mode.SILENT || mode == Mode.DECIDED)
-            return false;
+        return false;
+        
+        log.onReceiveMessage(message);
 
         // Decides with probability alpha if it going to crash
         if (faultProne && Math.random() < alpha) {
@@ -175,7 +175,7 @@ public class Process extends AbstractActor {
             return;
 
         State newState = new State(message.est, message.estBallot);
-        states.set(senderID, newState);
+        states.set(senderID - 1, newState);
         gatherCounter++;
 
         if (gatherCounter > n / 2) {

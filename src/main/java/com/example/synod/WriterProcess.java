@@ -35,7 +35,7 @@ public class WriterProcess extends AbstractActor {
   }
 
   private void onLaunchMessage(Launch message) {
-    startedAt = System.nanoTime();
+    startedAt = message.timestamp;
   }
 
   private void onDecideMessage(Decide message) {

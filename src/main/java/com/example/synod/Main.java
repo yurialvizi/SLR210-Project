@@ -14,9 +14,8 @@ import akka.actor.ActorSystem;
 
 public class Main {
     public static void main(String[] args) throws InterruptedException {
-        int[] N = new int[] { 3, 10, 40, 70, 100 };
-        int[] f = new int[] { 1, 4, 19, 34, 49 };
-        double[] timeToElection = new double[] { 0.5, 1, 1.5, 2 };
+        int[] N = new int[] { 3, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100 };
+        double[] timeToElection = new double[] { 0.01, 0.1, 0.5, 1, 1.5, 2 };
         double[] alpha = new double[] { 0, 0.1, 1 };
         int repeatTimes = 5;
 
@@ -26,7 +25,7 @@ public class Main {
             for (double a : alpha)
                 for (double t : timeToElection)
                     for (int nTry = 0; nTry < repeatTimes; nTry++) {
-                        Parameters parameters = new Parameters(N[i], f[i], (int) (t * 1000), a);
+                        Parameters parameters = new Parameters(N[i], (int) Math.ceil(N[i]/2) - 1, (int) (t * 1000), a);
                         runSimulation(parameters);
                     }
     }
@@ -40,7 +39,7 @@ public class Main {
         List<ActorRef> processes = new ArrayList<>();
 
         // Create N actors
-        for (int i = 0; i < p.N; i++) {
+        for (int i = 1; i <= p.N; i++) {
             final ActorRef actor = system.actorOf(Process.createActor(p.N, i), Integer.toString(i));
             processes.add(actor);
         }
@@ -59,9 +58,11 @@ public class Main {
 
         system.log().info("Starting consensus");
 
+        long startedAt = System.nanoTime();
+
         // Launch the processes
         for (ActorRef actor : processesWithWriter) {
-            actor.tell(new Launch(), ActorRef.noSender());
+            actor.tell(new Launch(startedAt), ActorRef.noSender());
         }
 
         Collections.shuffle(processes);
@@ -74,8 +75,8 @@ public class Main {
         }
 
         // Hold the system for a while
-        Thread.sleep(p.timeToElection);
         system.log().info("Time to hold");
+        Thread.sleep(p.timeToElection);
 
         // NonFaultyProcesses is shuffled, so we can choose the first one
         ActorRef chosenProcess = nonFaultyProcesses.get(0);
@@ -90,7 +91,7 @@ public class Main {
         }
 
         try {
-            system.log().info("Waiting for 0,5 second before terminating the system");
+            system.log().info("Waiting for 0,1 seconds before terminating the system");
             waitBeforeTerminate();
             system.log().info("Exiting");
         } catch (InterruptedException e) {
@@ -101,6 +102,6 @@ public class Main {
     }
 
     public static void waitBeforeTerminate() throws InterruptedException {
-        Thread.sleep(500);
+        Thread.sleep(100);
     }
 }
