@@ -35,7 +35,7 @@ public class Main {
         // Instantiate an actor system
         final ActorSystem system = ActorSystem.create("system");
 
-        system.log().info("System started with parameters:");
+        system.log().info("================ New Simulation =================");
         system.log().info(p.toString());
 
         Process.setAlpha(p.alpha);
@@ -78,8 +78,9 @@ public class Main {
         }
 
         // Hold the system for a while
-        system.log().info("Time to hold");
+        system.log().info("Waiting for " + p.timeToElection + " milliseconds before holding the system");
         Thread.sleep(p.timeToElection);
+        system.log().info("Time to hold");
 
         // NonFaultyProcesses is shuffled, so we can choose the first one
         ActorRef chosenProcess = nonFaultyProcesses.get(0);
