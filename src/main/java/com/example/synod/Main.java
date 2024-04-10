@@ -13,11 +13,15 @@ import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 
 public class Main {
+
+    private static ActorSystem system;
+    private static boolean logging = true;
+
     public static void main(String[] args) throws InterruptedException {
-        int[] N = new int[] { 3, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100 };
-        double[] timeToElection = new double[] { 0.01, 0.1, 0.5, 1, 1.5, 2 };
-        double[] alpha = new double[] { 0, 0.1, 1 };
-        int repeatTimes = 5;
+        int[] N = new int[] { 5 };
+        double[] timeToElection = new double[] { 2 };
+        double[] alpha = new double[] { 0 };
+        int repeatTimes = 1;
 
         WriterProcess.clearCSVFile();
 
@@ -33,10 +37,10 @@ public class Main {
 
     public static void runSimulation(Parameters p) throws InterruptedException {
         // Instantiate an actor system
-        final ActorSystem system = ActorSystem.create("system");
+        system = ActorSystem.create("system");
 
-        system.log().info("================ New Simulation =================");
-        system.log().info(p.toString());
+        log("================ New Simulation =================");
+        log(p.toString());
 
         Process.setAlpha(p.alpha);
         List<ActorRef> processes = new ArrayList<>();
@@ -59,7 +63,7 @@ public class Main {
             actor.tell(membership, ActorRef.noSender());
         }
 
-        system.log().info("Starting consensus");
+        log("Starting consensus");
 
         long startedAt = System.nanoTime();
 
@@ -78,14 +82,14 @@ public class Main {
         }
 
         // Hold the system for a while
-        system.log().info("Waiting for " + p.timeToElection + " milliseconds before holding the system");
+        log("Waiting for " + p.timeToElection + " milliseconds before holding the system");
         Thread.sleep(p.timeToElection);
-        system.log().info("Time to hold");
+        log("Time to hold");
 
         // NonFaultyProcesses is shuffled, so we can choose the first one
         ActorRef chosenProcess = nonFaultyProcesses.get(0);
 
-        system.log().info("Chosen process: " + chosenProcess);
+        log("Chosen process: " + chosenProcess);
 
         // Hold other processes
         for (ActorRef process : processes) {
@@ -95,14 +99,19 @@ public class Main {
         }
 
         try {
-            system.log().info("Waiting for 0,1 seconds before terminating the system");
+            log("Waiting for 0,1 seconds before terminating the system");
             waitBeforeTerminate();
-            system.log().info("Exiting");
+            log("Exiting");
         } catch (InterruptedException e) {
             e.printStackTrace();
         } finally {
             system.terminate();
         }
+    }
+
+    private static void log(String s) {
+        if (logging)
+            system.log().info(s);
     }
 
     public static void waitBeforeTerminate() throws InterruptedException {
